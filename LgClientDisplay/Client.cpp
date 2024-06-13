@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <tchar.h>
 #include <atlstr.h>
-#include < cstdlib >
+#include <cstdlib >
 #include <opencv2\highgui\highgui.hpp>
 #include <opencv2\opencv.hpp>
 #include "Message.h"
@@ -13,7 +13,15 @@
 #include "TcpSendRecv.h"
 #include "DisplayImage.h"
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "libssl.lib")
+#pragma comment(lib, "libcrypto.lib")
+
+#define SERVER_CERT_FILE "server.crt"  // 서버 인증서 파일
+#define SERVER_KEY_FILE "server.key"   // 서버 개인 키 파일
 
 enum InputMode { MsgHeader, Msg };
 static  std::vector<uchar> sendbuff;//buffer for coding
@@ -27,6 +35,24 @@ static HANDLE hThreadClient = INVALID_HANDLE_VALUE;
 static DWORD WINAPI ThreadClient(LPVOID ivalue);
 static void ClientSetExitEvent(void);
 static void ClientCleanup(void);
+
+SSL* ssl;
+
+SSL_CTX* InitCTX() {
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    if (ctx == nullptr) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+    // TLS 버전 설정 (예: TLSv1.2)
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
+    return ctx;
+}
+
 
 static void ClientSetExitEvent(void)
 {
@@ -151,6 +177,19 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
     struct addrinfo   hints;
     struct addrinfo* result = NULL;
     char remoteportno[128];
+	SSL_CTX* ctx = InitCTX();
+    remoteport = 12345;
+
+    
+    // 서버 키와 인증서 로드
+    if (SSL_CTX_use_certificate_file(ctx, SERVER_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {
+        std::cerr << "Error loading server certificate." << std::endl;
+        return false;
+    }
+    if (SSL_CTX_use_PrivateKey_file(ctx, SERVER_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {
+        std::cerr << "Error loading server private key." << std::endl;
+        return false;
+    }
 
     sprintf_s(remoteportno,sizeof(remoteportno), "%d", remoteport);
 
@@ -202,9 +241,43 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
         printf("TCP NODELAY Failed\n");
     }
     else  printf("TCP NODELAY SET\n");
+    
+    // SSL 소켓 생성
+    ssl = SSL_new(ctx);
+    if (ssl == NULL) {
+        std::cerr << "Error creating SSL structure." << std::endl;
+        closesocket(Client);
+        return false;
+    }
+    SSL_set_fd(ssl, Client);
+
+    // SSL 핸드셰이크
+    if (SSL_connect(ssl) != 1) {
+        std::cerr << "Error establishing SSL connection." << std::endl;
+        SSL_free(ssl);
+        closesocket(Client);
+        return false;
+    }
+
+    // 메시지 전송
+
+    const char* message = "Hello, server!";
+    int bytes_sent = SSL_write(ssl, message, strlen(message));
+
     return true;
 
 }
+
+bool SendMessageTls(const char* message)
+{
+    int bytes_sent = SSL_write(ssl, message, strlen(message));
+    if (bytes_sent <= 0) {
+        std::cerr << "Error sending message." << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool StartClient(void)
 {
  hThreadClient = CreateThread(NULL, 0, ThreadClient, NULL, 0, &ThreadClientID);
