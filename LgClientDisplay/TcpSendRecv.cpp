@@ -4,6 +4,9 @@
 #include <iostream>
 #include <stdio.h>
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 #if 0
 //-----------------------------------------------------------------
 // ReadDataTcp - Reads the specified amount TCP data 
@@ -34,9 +37,10 @@ int ReadDataTcp(SOCKET socket, unsigned char* data, int length)
 //-----------------------------------------------------------------
 // ReadDataTcpNoBlock - Reads Available TCP data 
 //-----------------------------------------------------------------
-int ReadDataTcpNoBlock(SOCKET socket, unsigned char* data, int length)
+int ReadDataTcpNoBlock(SSL* ssl, unsigned char* data, int length)
 {
-  return(recv(socket, (char*)data, length, 0));
+    return(SSL_read(ssl, data, length));
+    //return(recv(socket, (char*)data, length, 0));
 }
 //-----------------------------------------------------------------
 // END Reads Available TCP data
@@ -44,16 +48,20 @@ int ReadDataTcpNoBlock(SOCKET socket, unsigned char* data, int length)
 //-----------------------------------------------------------------
 // WriteDataTcp - Writes the specified amount TCP data 
 //-----------------------------------------------------------------
-int WriteDataTcp(SOCKET socket, unsigned char* data, int length)
+int WriteDataTcp(SSL* ssl, unsigned char* data, int length)
 {
     int total_bytes_written = 0;
     unsigned int retry_count = 0;
     int bytes_written;
     while (total_bytes_written != length)
     {
+        /*
         bytes_written = send(socket,
             (char*)(data + total_bytes_written),
             (int)(length - total_bytes_written), 0);
+        */
+
+        bytes_written = SSL_write(ssl, data, length);
         if (bytes_written == SOCKET_ERROR)
         {
             if (WSAGetLastError() == WSAEWOULDBLOCK)

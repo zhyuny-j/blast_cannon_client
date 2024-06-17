@@ -89,7 +89,7 @@ bool SendCodeToSever(unsigned char Code)
         MsgCmd.Hdr.Len = htonl(sizeof(unsigned char));
         MsgCmd.Hdr.Type = htonl(MT_COMMANDS);
         MsgCmd.Commands = Code;
-        if (WriteDataTcp(Client, (unsigned char *)&MsgCmd, msglen)== msglen)
+        if (WriteDataTcp(ssl, (unsigned char *)&MsgCmd, msglen)== msglen)
         {
             return true;
         }
@@ -108,7 +108,7 @@ bool SendCalibToSever(unsigned char Code)
         MsgCmd.Hdr.Len = htonl(sizeof(unsigned char));
         MsgCmd.Hdr.Type = htonl(MT_CALIB_COMMANDS);
         MsgCmd.Commands = Code;
-        if (WriteDataTcp(Client, (unsigned char*)&MsgCmd, msglen) == msglen)
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgCmd, msglen) == msglen)
         {
             return true;
         }
@@ -126,7 +126,7 @@ bool SendTargetOrderToSever(char* TargetOrder)
         MsgTargetOrder.Hdr.Len = htonl((int)strlen((const char*)TargetOrder)+1);
         MsgTargetOrder.Hdr.Type = htonl(MT_TARGET_SEQUENCE);
         strcpy_s((char*)MsgTargetOrder.FiringOrder,sizeof(MsgTargetOrder.FiringOrder),TargetOrder);
-        if (WriteDataTcp(Client, (unsigned char*)&MsgTargetOrder, msglen) == msglen)
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgTargetOrder, msglen) == msglen)
         {
             return true;
         }
@@ -144,7 +144,7 @@ bool SendPreArmCodeToSever(char* Code)
         MsgPreArm.Hdr.Len = htonl((int)strlen(Code) + 1);
         MsgPreArm.Hdr.Type = htonl(MT_PREARM);
         strcpy_s((char*)MsgPreArm.Code, sizeof(MsgPreArm.Code), Code);
-        if (WriteDataTcp(Client, (unsigned char*)&MsgPreArm, msglen) == msglen)
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgPreArm, msglen) == msglen)
         {
             return true;
         }
@@ -162,7 +162,7 @@ bool SendStateChangeRequestToSever(SystemState_t State)
         MsgChangeStateRequest.Hdr.Len = htonl(sizeof(MsgChangeStateRequest.State));
         MsgChangeStateRequest.Hdr.Type = htonl(MT_STATE_CHANGE_REQ);
         MsgChangeStateRequest.State = (SystemState_t)htonl(State);
-        if (WriteDataTcp(Client, (unsigned char*)&MsgChangeStateRequest, msglen) == msglen)
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgChangeStateRequest, msglen) == msglen)
         {
             return true;
         }
@@ -242,7 +242,7 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
     }
     else  printf("TCP NODELAY SET\n");
     
-    // SSL 소켓 생성
+    // SSL socket create
     ssl = SSL_new(ctx);
     if (ssl == NULL) {
         std::cerr << "Error creating SSL structure." << std::endl;
@@ -251,7 +251,7 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
     }
     SSL_set_fd(ssl, Client);
 
-    // SSL 핸드셰이크
+    // SSL Handshake
     if (SSL_connect(ssl) != 1) {
         std::cerr << "Error establishing SSL connection." << std::endl;
         SSL_free(ssl);
@@ -259,23 +259,8 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
         return false;
     }
 
-    // 메시지 전송
-
-    const char* message = "Hello, server!";
-    int bytes_sent = SSL_write(ssl, message, strlen(message));
-
     return true;
 
-}
-
-bool SendMessageTls(const char* message)
-{
-    int bytes_sent = SSL_write(ssl, message, strlen(message));
-    if (bytes_sent <= 0) {
-        std::cerr << "Error sending message." << std::endl;
-        return false;
-    }
-    return true;
 }
 
 bool StartClient(void)
@@ -366,7 +351,7 @@ static DWORD WINAPI ThreadClient(LPVOID ivalue)
       return 1;
     }
  
-     hClientEvent = WSACreateEvent();
+    hClientEvent = WSACreateEvent();
     hEndClientEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
     if (WSAEventSelect(Client, hClientEvent, FD_READ | FD_CLOSE) == SOCKET_ERROR)
@@ -410,7 +395,7 @@ static DWORD WINAPI ThreadClient(LPVOID ivalue)
                  else
                  {
                    int iResult;
-                   iResult = ReadDataTcpNoBlock(Client, (unsigned char*)InputBufferWithOffset, InputBytesNeeded);
+                   iResult = ReadDataTcpNoBlock(ssl, (unsigned char*)InputBufferWithOffset, InputBytesNeeded);
                    if (iResult != SOCKET_ERROR)
                    {
                        if (iResult == 0)
@@ -424,6 +409,15 @@ static DWORD WINAPI ThreadClient(LPVOID ivalue)
                        }
                        else
                        {
+                           /*
+                           int i = 0;
+                           std::cout << "RECV: ";
+                           for (i = 0; i < 8; i++) {
+                               fprintf(stdout, "%02X", InputBufferWithOffset[i]);
+                           }
+                           std::cout << std::endl;
+                           */
+
                            InputBytesNeeded -= iResult;
                            InputBufferWithOffset += iResult;
                            if (InputBytesNeeded == 0)
