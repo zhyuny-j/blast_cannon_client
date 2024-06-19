@@ -171,6 +171,38 @@ bool SendStateChangeRequestToSever(SystemState_t State)
     return false;
 }
 
+bool SendLoginToSever(unsigned int idLength, unsigned int pwLength, char* idAndPwd)
+{
+    if (IsClientConnected())
+    {
+        std::cout << "SendLoginToServer" << std::endl;
+        /*
+        std::cout << sizeof(TMesssageHeader) << std::endl;
+        std::cout << (int)strlen(idAndPwd) << std::endl;
+        */
+
+        TMesssageLogin MsgLogin;
+        int msglen = sizeof(TMesssageHeader) + (int)strlen(idAndPwd) + 4 + 4 + 1;
+        //printf("Message len %d\n", msglen);
+        MsgLogin.Hdr.Len = htonl((int)strlen(idAndPwd) + 1 + 1 + 1);
+        MsgLogin.Hdr.Type = htonl(MT_LOGIN);
+        MsgLogin.LengthOfId = htonl(idLength);
+        MsgLogin.LengthOfPw = htonl(pwLength);
+
+        std::cout << sizeof(MsgLogin.IdAndPw) << std::endl;
+
+        strcpy_s((char*)MsgLogin.IdAndPw, sizeof(MsgLogin.IdAndPw), idAndPwd);
+        std::cout << MsgLogin.IdAndPw << std::endl;
+
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgLogin, msglen) == msglen)
+        {
+            return true;
+        }
+
+    }
+    return false;
+}
+
 bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
 {
     int iResult;
@@ -181,7 +213,7 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
     remoteport = 12345;
 
     
-    // 서버 키와 인증서 로드
+    // Load server key and CRT
     if (SSL_CTX_use_certificate_file(ctx, SERVER_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {
         std::cerr << "Error loading server certificate." << std::endl;
         return false;
@@ -328,6 +360,20 @@ void ProcessMessage(char* MsgBuffer)
 
 
 }
+
+void GetCredential(const std::wstring& target) {
+    PCREDENTIALW pCredential = nullptr;
+
+    if (CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &pCredential)) {
+        std::wcout << L"Username: " << pCredential->UserName << L"\n";
+        std::wcout << L"Password: " << (wchar_t*)pCredential->CredentialBlob << L"\n";
+        CredFree(pCredential);
+    }
+    else {
+        std::wcerr << L"Failed to read credential. Error: " << GetLastError() << L"\n";
+    }
+}
+
 static DWORD WINAPI ThreadClient(LPVOID ivalue)
 {    
     HANDLE ghEvents[2];
