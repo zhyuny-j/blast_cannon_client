@@ -9,6 +9,7 @@ bool SendPreArmCodeToSever(char* Code);
 bool SendStateChangeRequestToSever(SystemState_t State);
 bool SendCalibToSever(unsigned char Code);
 bool SendLoginToSever(unsigned int idLength, unsigned int pwLength, char* idAndPwd);
+bool GetStoredCredential(const wchar_t* targetName, std::wstring& username, std::wstring& password);
 //-----------------------------------------------------------------
 // END of File
 //-----------------------------------------------------------------

@@ -286,6 +286,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
             {
                 SendCodeToSever(SendCode);
 
+                /* TODO:delete this code
                 std::string idAndPw = "abcde12345";
 
                 size_t arraySize = idAndPw.size();
@@ -294,6 +295,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
                 std::memcpy(byteArray, idAndPw.data(), idAndPw.size());
                 //strncpy_s(char_array, idAndPw.c_str(), sizeof(char_array));
                 SendLoginToSever(5, 5, byteArray);
+                */
             }
         }
         }

@@ -13,15 +13,22 @@
 #include "TcpSendRecv.h"
 #include "DisplayImage.h"
 
+#include <wincrypt.h>
+#include <wincred.h>
+#include <iostream>
+
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "libssl.lib")
 #pragma comment(lib, "libcrypto.lib")
+#pragma comment(lib, "advapi32.lib")
 
-#define SERVER_CERT_FILE "server.crt"  // 서버 인증서 파일
-#define SERVER_KEY_FILE "server.key"   // 서버 개인 키 파일
+#define CA_CERT_FILE "ca.crt.pem"
+#define CLIENT_CERT_FILE "client.crt.pem"
+#define CLIENT_KEY_FILE "client.key.pem"
 
 enum InputMode { MsgHeader, Msg };
 static  std::vector<uchar> sendbuff;//buffer for coding
@@ -47,7 +54,7 @@ SSL_CTX* InitCTX() {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    // TLS 버전 설정 (예: TLSv1.2)
+    // Set TLS Version to TLSv1.2
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
     SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
     return ctx;
@@ -176,6 +183,8 @@ bool SendLoginToSever(unsigned int idLength, unsigned int pwLength, char* idAndP
     if (IsClientConnected())
     {
         std::cout << "SendLoginToServer" << std::endl;
+
+        //TODO: delete this code
         /*
         std::cout << sizeof(TMesssageHeader) << std::endl;
         std::cout << (int)strlen(idAndPwd) << std::endl;
@@ -210,15 +219,39 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
     struct addrinfo* result = NULL;
     char remoteportno[128];
 	SSL_CTX* ctx = InitCTX();
+    
+    //TODO: delete this code
     remoteport = 12345;
+
+    //TODO: delete this code if cannot get password from certification manager
+    /*
+    std::wstring targetName = L"ClientKeyCredential";
+    std::wstring username, password;
+
+    if (GetStoredCredential(targetName.c_str(), username, password))
+    {
+        std::wcout << "Username: " << username << std::endl;
+        std::wcout << "Password: " << password << std::endl;
+        // 여기에서 password를 사용하여 필요한 작업을 수행합니다.
+    }
+    else
+    {
+        std::cerr << "Failed to retrieve credential." << std::endl;
+    }
+    */
 
     
     // Load server key and CRT
-    if (SSL_CTX_use_certificate_file(ctx, SERVER_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_load_verify_locations(ctx, CA_CERT_FILE, nullptr) <= 0) {
+        std::cerr << "Error setting CA certificate" << std::endl;
+        return false;
+    }
+
+    if (SSL_CTX_use_certificate_file(ctx, CLIENT_CERT_FILE, SSL_FILETYPE_PEM) <= 0) {
         std::cerr << "Error loading server certificate." << std::endl;
         return false;
     }
-    if (SSL_CTX_use_PrivateKey_file(ctx, SERVER_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, CLIENT_KEY_FILE, SSL_FILETYPE_PEM) <= 0) {
         std::cerr << "Error loading server private key." << std::endl;
         return false;
     }
@@ -357,22 +390,41 @@ void ProcessMessage(char* MsgBuffer)
     }
     break;
     }
-
-
 }
 
-void GetCredential(const std::wstring& target) {
-    PCREDENTIALW pCredential = nullptr;
+bool GetStoredCredential(const wchar_t* targetName, std::wstring& username, std::wstring& password)
+{
+    PCREDENTIAL cred;
+    if (!CredReadW(targetName, CRED_TYPE_GENERIC, 0, &cred))
+    {
+        std::cerr << "CredRead failed: " << GetLastError() << std::endl;
+        return false;
+    }
 
-    if (CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &pCredential)) {
-        std::wcout << L"Username: " << pCredential->UserName << L"\n";
-        std::wcout << L"Password: " << (wchar_t*)pCredential->CredentialBlob << L"\n";
-        CredFree(pCredential);
+    if (cred->Type == CRED_TYPE_GENERIC)
+    {
+        username = std::wstring(cred->UserName);
+        DATA_BLOB dataIn;
+        DATA_BLOB dataOut;
+        dataIn.cbData = cred->CredentialBlobSize;
+        dataIn.pbData = cred->CredentialBlob;
+        if (CryptUnprotectData(&dataIn, nullptr, nullptr, nullptr, nullptr, 0, &dataOut))
+        {
+            password = std::wstring(reinterpret_cast<wchar_t*>(dataOut.pbData), dataOut.cbData / sizeof(wchar_t));
+            LocalFree(dataOut.pbData);
+            CredFree(cred);
+            return true;
+        }
+        else
+        {
+            std::cerr << "CryptUnprotectData failed: " << GetLastError() << std::endl;
+        }
     }
-    else {
-        std::wcerr << L"Failed to read credential. Error: " << GetLastError() << L"\n";
-    }
+
+    CredFree(cred);
+    return false;
 }
+
 
 static DWORD WINAPI ThreadClient(LPVOID ivalue)
 {    
