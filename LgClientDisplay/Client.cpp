@@ -45,6 +45,9 @@ static void ClientCleanup(void);
 
 SSL* ssl;
 
+char* reveivedHmac;
+char* token;
+
 SSL_CTX* InitCTX() {
     SSL_library_init();
     SSL_load_error_strings();
@@ -178,17 +181,12 @@ bool SendStateChangeRequestToSever(SystemState_t State)
     return false;
 }
 
+/*
 bool SendLoginToSever(unsigned int idLength, unsigned int pwLength, char* idAndPwd)
 {
     if (IsClientConnected())
     {
         std::cout << "SendLoginToServer" << std::endl;
-
-        //TODO: delete this code
-        /*
-        std::cout << sizeof(TMesssageHeader) << std::endl;
-        std::cout << (int)strlen(idAndPwd) << std::endl;
-        */
 
         TMesssageLogin MsgLogin;
         int msglen = sizeof(TMesssageHeader) + (int)strlen(idAndPwd) + 4 + 4 + 1;
@@ -211,6 +209,87 @@ bool SendLoginToSever(unsigned int idLength, unsigned int pwLength, char* idAndP
     }
     return false;
 }
+*/
+
+bool SendLoginEnrollToSever(char* userId, char* userPw)
+{
+    if (IsClientConnected())
+    {
+        std::cout << "SendLoginEnrollToSever" << std::endl;
+
+        TMesssageLoginEnrollRequest MsgLoginEnroll;
+        int msglen = sizeof(TMesssageHeader) + (int)strlen(userId) + (int)strlen(userPw) + 1;
+
+        MsgLoginEnroll.Hdr.Len = htonl((int)strlen(userId) + (int)strlen(userPw) + 1);
+        MsgLoginEnroll.Hdr.Type = htonl(MT_LOGIN_ENROLL_REQ);
+        strcpy_s(MsgLoginEnroll.Hdr.HMAC, sizeof(MsgLoginEnroll.Hdr.HMAC), reveivedHmac);
+
+        strcpy_s(MsgLoginEnroll.Name, sizeof(MsgLoginEnroll.Name), userId);
+        strcpy_s(MsgLoginEnroll.Password, sizeof(MsgLoginEnroll.Password), userPw);
+
+
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgLoginEnroll, msglen) == msglen)
+        {
+            return true;
+        }
+
+    }
+    return false;
+}
+
+bool SendLoginVerifyToSever(char *userId, char *userPw)
+{
+    if (IsClientConnected())
+    {
+        std::cout << "SendLoginVerifyToSever" << std::endl;
+
+        TMesssageLoginVerifyRequest MsgLoginVerify;
+        int msglen = sizeof(TMesssageHeader) + (int)strlen(userId) + (int)strlen(userPw) + 1;
+
+        MsgLoginVerify.Hdr.Len = htonl((int)strlen(userId) + (int)strlen(userPw) + 1);
+        MsgLoginVerify.Hdr.Type = htonl(MT_LOGIN_VERITY_REQ);
+        strcpy_s(MsgLoginVerify.Hdr.HMAC, sizeof(MsgLoginVerify.Hdr.HMAC), reveivedHmac);
+
+        strcpy_s(MsgLoginVerify.Name, sizeof(MsgLoginVerify.Name), userId);
+        strcpy_s(MsgLoginVerify.Password, sizeof(MsgLoginVerify.Password), userPw);
+ 
+
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgLoginVerify, msglen) == msglen)
+        {
+            return true;
+        }
+
+    }
+    return false;
+}
+
+bool SendLoginChangePwToSever(char* userId, char* userPw)
+{
+    if (IsClientConnected())
+    {
+        std::cout << "SendLoginChangePwToSever" << std::endl;
+
+        TMesssageLoginChangePwRequest MsgLoginChangePw;
+        int msglen = sizeof(TMesssageHeader) + (int)strlen(userId) + (int)strlen(userPw) + (int)strlen(token) + 1;
+
+        MsgLoginChangePw.Hdr.Len = htonl((int)strlen(userId) + (int)strlen(userPw) + (int)strlen(token) + 1);
+        MsgLoginChangePw.Hdr.Type = htonl(MT_LOGIN_CHANGEPW_REQ);
+        strcpy_s(MsgLoginChangePw.Hdr.HMAC, sizeof(MsgLoginChangePw.Hdr.HMAC), reveivedHmac);
+
+        strcpy_s(MsgLoginChangePw.Name, sizeof(MsgLoginChangePw.Name), userId);
+        strcpy_s(MsgLoginChangePw.Password, sizeof(MsgLoginChangePw.Password), userPw);
+        strcpy_s(MsgLoginChangePw.Token, sizeof(MsgLoginChangePw.Token), token);
+
+
+        if (WriteDataTcp(ssl, (unsigned char*)&MsgLoginChangePw, msglen) == msglen)
+        {
+            return true;
+        }
+
+    }
+    return false;
+}
+
 
 bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
 {
@@ -239,6 +318,7 @@ bool ConnectToSever(const char* remotehostname, unsigned short remoteport)
         std::cerr << "Failed to retrieve credential." << std::endl;
     }
     */
+    
 
     
     // Load server key and CRT
@@ -384,6 +464,38 @@ void ProcessMessage(char* MsgBuffer)
 
     }
     break;
+    case MT_LOGIN_ENROLL_RES:
+    {
+        TMesssageLoginEnrollResponse* MsgLoginEnrolRes;
+        MsgLoginEnrolRes = (TMesssageLoginEnrollResponse*)MsgBuffer;
+        MsgLoginEnrolRes->LoginState = (LoginState_t)ntohl(MsgLoginEnrolRes->LoginState);
+        PostMessage(hWndMain, WM_LOGIN_STATE, MsgLoginEnrolRes->LoginState, 0);
+
+    }
+    break;
+    case MT_LOGIN_VERITY_RES:
+    {
+        TMesssageLoginVerifyResponse* MsgLoginVerifyRes;
+        MsgLoginVerifyRes = (TMesssageLoginVerifyResponse*)MsgBuffer;
+        MsgLoginVerifyRes->LoginState = (LoginState_t)ntohl(MsgLoginVerifyRes->LoginState);
+        PostMessage(hWndMain, WM_LOGIN_STATE, MsgLoginVerifyRes->LoginState, 0);
+        if (LoginState_t::SUCCESS != MsgLoginVerifyRes->LoginState) {
+            PostMessage(hWndMain, WM_LOGIN_FAIL_COUNT, MsgLoginVerifyRes->FailCount, 0);
+        }
+        else {
+            PostMessage(hWndMain, WM_LOGIN_PRIVILEGE, MsgLoginVerifyRes->Privilige, 0);
+        }
+    }
+    break;
+    case MT_LOGIN_CHANGEPW_RES:
+    {
+        TMesssageLoginChangePwResponse* MsgLoginChangePwRes;
+        MsgLoginChangePwRes = (TMesssageLoginChangePwResponse*)MsgBuffer;
+        MsgLoginChangePwRes->LoginState = (LoginState_t)ntohl(MsgLoginChangePwRes->LoginState);
+        PostMessage(hWndMain, WM_LOGIN_STATE, MsgLoginChangePwRes->LoginState, 0);
+
+    }
+    break;
     default:
     {
         printf("unknown message\n");
@@ -408,6 +520,17 @@ bool GetStoredCredential(const wchar_t* targetName, std::wstring& username, std:
         DATA_BLOB dataOut;
         dataIn.cbData = cred->CredentialBlobSize;
         dataIn.pbData = cred->CredentialBlob;
+
+        /*
+        // 암호는 CredentialBlob에 저장되어 있으며, CredentialBlobSize에 크기가 저장되어 있음
+        if (cred->CredentialBlobSize > 0) {
+            std::vector<char> password(cred->CredentialBlob, cred->CredentialBlob + cred->CredentialBlobSize);
+            password.push_back('\0'); // null-terminator 추가
+
+            std::wcout << L"Credential Password: " << (char*)password.data() << std::endl;
+        }
+        */
+
         if (CryptUnprotectData(&dataIn, nullptr, nullptr, nullptr, nullptr, 0, &dataOut))
         {
             password = std::wstring(reinterpret_cast<wchar_t*>(dataOut.pbData), dataOut.cbData / sizeof(wchar_t));
@@ -507,6 +630,7 @@ static DWORD WINAPI ThreadClient(LPVOID ivalue)
                        }
                        else
                        {
+                           //TODO: delete this code
                            /*
                            int i = 0;
                            std::cout << "RECV: ";
